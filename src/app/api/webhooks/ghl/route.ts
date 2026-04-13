@@ -6,7 +6,6 @@ const RETELL_AGENT_ID = process.env.RETELL_AGENT_ID || "";
 const RETELL_FROM_NUMBER = process.env.RETELL_FROM_NUMBER || "";
 const GHL_API_KEY = process.env.GHL_API_KEY || "";
 const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID || "";
-const CALL_DELAY_MS = 2 * 60 * 1000; // 2 minutes
 
 // --- Retell AI: create outbound phone call ---
 async function createRetellCall(contact: {
@@ -70,28 +69,22 @@ function normalizePhone(raw: string): string {
   return `+${digits}`;
 }
 
-// --- Schedule the delayed outbound call + tag ---
-function scheduleOutboundCall(contact: {
+// --- Execute outbound call + tag ---
+async function processContact(contact: {
   id: string;
   phone: string;
   firstName: string;
   loanType: string;
 }) {
-  setTimeout(async () => {
-    try {
-      console.log(
-        `[retell] Initiating outbound call to ${contact.phone} for contact ${contact.id}`
-      );
-      const callResult = await createRetellCall(contact);
-      console.log(`[retell] Call created:`, callResult);
+  console.log(
+    `[retell] Initiating outbound call to ${contact.phone} for contact ${contact.id}`
+  );
+  const callResult = await createRetellCall(contact);
+  console.log(`[retell] Call created:`, callResult);
 
-      console.log(`[ghl] Adding "AI Called" tag to contact ${contact.id}`);
-      await addTagToContact(contact.id, "AI Called");
-      console.log(`[ghl] Tag added successfully`);
-    } catch (err) {
-      console.error(`[webhook] Error processing contact ${contact.id}:`, err);
-    }
-  }, CALL_DELAY_MS);
+  console.log(`[ghl] Adding "AI Called" tag to contact ${contact.id}`);
+  await addTagToContact(contact.id, "AI Called");
+  console.log(`[ghl] Tag added successfully`);
 }
 
 // --- Extract contact fields from GHL webhook payload ---
@@ -148,12 +141,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Respond immediately, schedule the call for 2 minutes later
-    scheduleOutboundCall(contact);
+    // Call Retell immediately and tag the contact
+    await processContact(contact);
 
     return NextResponse.json({
       ok: true,
-      message: `Outbound call scheduled in ${CALL_DELAY_MS / 1000}s for ${contact.phone}`,
+      message: `Outbound call initiated for ${contact.phone}`,
     });
   } catch (err) {
     console.error("[webhook] Failed to parse request:", err);
@@ -169,6 +162,5 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     service: "ghl-retell-webhook",
-    delay: `${CALL_DELAY_MS / 1000}s`,
   });
 }
