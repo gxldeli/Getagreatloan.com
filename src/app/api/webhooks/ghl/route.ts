@@ -127,22 +127,22 @@ function extractContact(body: Record<string, unknown>): {
     (body.data as Record<string, unknown>);
   const data = nested ?? body;
 
-  // --- Contact ID ---
+  // --- Contact ID (GHL sends contact_id at top level) ---
   const id = String(
-    data.id ?? data.contactId ?? data.contact_id ??
-    body.id ?? body.contactId ?? body.contact_id ?? ""
+    body.contact_id ?? body.contactId ?? body.id ??
+    data.contact_id ?? data.contactId ?? data.id ?? ""
   );
 
-  // --- Phone ---
+  // --- Phone (top-level in GHL payload) ---
   const phone = String(
-    data.phone ?? data.phoneNumber ?? data.phone_number ??
-    body.phone ?? body.phoneNumber ?? body.phone_number ?? ""
+    body.phone ?? body.phoneNumber ?? body.phone_number ??
+    data.phone ?? data.phoneNumber ?? data.phone_number ?? ""
   );
 
-  // --- First name ---
+  // --- First name (GHL sends first_name at top level) ---
   const firstName = String(
-    data.firstName ?? data.first_name ?? data.name ?? data.contactName ??
-    body.firstName ?? body.first_name ?? body.contactName ?? ""
+    body.first_name ?? body.firstName ?? body.full_name ?? body.contactName ??
+    data.first_name ?? data.firstName ?? data.full_name ?? data.contactName ?? ""
   );
 
   // --- Loan type: check customFields array/object, then top-level fields ---
