@@ -87,6 +87,32 @@ async function processContact(contact: {
   console.log(`[ghl] Tag added successfully`);
 }
 
+// --- Extract a custom field value from GHL's customFields (array or object) ---
+function getCustomField(
+  customFields: unknown,
+  ...keys: string[]
+): string {
+  // GHL sends customFields as an array: [{ id, key, value, field_value }]
+  if (Array.isArray(customFields)) {
+    for (const field of customFields) {
+      const fKey = (field.key ?? field.id ?? "") as string;
+      const fVal = (field.field_value ?? field.value ?? "") as string;
+      if (keys.some((k) => fKey.toLowerCase().includes(k.toLowerCase())) && fVal) {
+        return fVal;
+      }
+    }
+    return "";
+  }
+  // Fallback: plain object
+  if (customFields && typeof customFields === "object") {
+    const cf = customFields as Record<string, unknown>;
+    for (const k of keys) {
+      if (cf[k]) return String(cf[k]);
+    }
+  }
+  return "";
+}
+
 // --- Extract contact fields from GHL webhook payload ---
 function extractContact(body: Record<string, unknown>): {
   id: string;
@@ -94,34 +120,50 @@ function extractContact(body: Record<string, unknown>): {
   firstName: string;
   loanType: string;
 } | null {
-  // GHL webhook payloads vary by trigger type. Common shapes:
-  // 1. Top-level: { id, phone, firstName, ... }
-  // 2. Nested under "contact": { contact: { id, phone, ... } }
-  // 3. Nested under "data": { data: { id, phone, ... } }
-  const data =
+  // GHL webhook payloads vary by trigger type. Try nested shapes first,
+  // then fall back to top-level fields.
+  const nested =
     (body.contact as Record<string, unknown>) ??
-    (body.data as Record<string, unknown>) ??
-    body;
+    (body.data as Record<string, unknown>);
+  const data = nested ?? body;
 
-  const id = (data.id ?? data.contactId ?? data.contact_id ?? "") as string;
-  const phone = (data.phone ?? data.phoneNumber ?? data.phone_number ?? "") as string;
-  const firstName = (data.firstName ?? data.first_name ?? data.name ?? "") as string;
+  // --- Contact ID ---
+  const id = String(
+    data.id ?? data.contactId ?? data.contact_id ??
+    body.id ?? body.contactId ?? body.contact_id ?? ""
+  );
 
-  // Loan type can come from customFields, custom_fields, or the "goal" form field
-  let loanType = "";
-  if (data.customFields && typeof data.customFields === "object") {
-    const cf = data.customFields as Record<string, unknown>;
-    loanType = (cf.loan_type ?? cf.goal ?? cf.loanType ?? "") as string;
-  }
-  if (!loanType && data.custom_fields && typeof data.custom_fields === "object") {
-    const cf = data.custom_fields as Record<string, unknown>;
-    loanType = (cf.loan_type ?? cf.goal ?? cf.loanType ?? "") as string;
-  }
+  // --- Phone ---
+  const phone = String(
+    data.phone ?? data.phoneNumber ?? data.phone_number ??
+    body.phone ?? body.phoneNumber ?? body.phone_number ?? ""
+  );
+
+  // --- First name ---
+  const firstName = String(
+    data.firstName ?? data.first_name ?? data.name ?? data.contactName ??
+    body.firstName ?? body.first_name ?? body.contactName ?? ""
+  );
+
+  // --- Loan type: check customFields array/object, then top-level fields ---
+  const cfSource = data.customFields ?? data.custom_fields ??
+    body.customFields ?? body.custom_fields;
+  let loanType = getCustomField(cfSource, "loan_type", "goal", "loanType", "what_are_you_looking_for");
   if (!loanType) {
-    loanType = (data.goal ?? data.loan_type ?? data.loanType ?? "") as string;
+    loanType = String(data.goal ?? data.loan_type ?? data.loanType ??
+      body.goal ?? body.loan_type ?? body.loanType ?? "");
   }
 
-  if (!id || !phone) return null;
+  console.log("[webhook] Extracted fields:", JSON.stringify({ id, phone, firstName, loanType }));
+  console.log("[webhook] Top-level keys:", Object.keys(body).join(", "));
+  if (nested) {
+    console.log("[webhook] Nested keys:", Object.keys(nested).join(", "));
+  }
+
+  if (!id || !phone) {
+    console.warn("[webhook] Missing id or phone. id =", JSON.stringify(id), "phone =", JSON.stringify(phone));
+    return null;
+  }
 
   return { id, phone: normalizePhone(phone), firstName, loanType };
 }
